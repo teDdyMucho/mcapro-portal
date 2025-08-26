@@ -4,6 +4,12 @@ import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 // Set up PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
+// Webhook URL for sending extracted data
+const WEBHOOK_URL = 'https://primary-production-c8d0.up.railway.app/webhook/extractor';
+
+// Minimal type for PDF.js text content items we need
+type PdfJsTextItem = { str: string };
+
 interface ExtractedData {
   businessName: string;
   ownerName: string;
@@ -37,14 +43,17 @@ export const extractDataFromPDF = async (file: File): Promise<ExtractedData> => 
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
       const page = await pdf.getPage(pageNum);
       const textContent = await page.getTextContent();
-      const pageText = textContent.items
-        .map((item: any) => item.str)
+      const pageText = (textContent.items as PdfJsTextItem[])
+        .map((item) => item.str)
         .join(' ');
       fullText += pageText + ' ';
     }
     
     // Extract data using regex patterns and text analysis
     const extractedData = parseTextForApplicationData(fullText);
+    
+    // Send PDF file and extracted data to webhook
+    await sendToWebhook(extractedData, file);
     
     return extractedData;
   } catch (error) {
@@ -54,7 +63,10 @@ export const extractDataFromPDF = async (file: File): Promise<ExtractedData> => 
 };
 
 const parseTextForApplicationData = (text: string): ExtractedData => {
-  const cleanText = text.replace(/\s+/g, ' ').trim();
+  // Pre-strip noisy sections demarcated by markers often present in bank statements
+  // e.g., *start*deposits and additions ... *end*deposits and additions
+  const stripped = text.replace(/\*start\*[\s\S]*?\*end\*/gi, ' ');
+  const cleanText = stripped.replace(/\s+/g, ' ').trim();
   
   // Define regex patterns for specific PDF form fields
   const patterns = {
@@ -64,7 +76,6 @@ const parseTextForApplicationData = (text: string): ExtractedData => {
       /(?:dba|doing\s+business\s+as)[:\s]+([^\n\r]+)/i
     ],
     ownerName: [
-      /(?:^|\s)name[:\s]+([^\n\r]+)/i,
       /(?:owner\s+name|principal\s+name|applicant\s+name)[:\s]+([^\n\r]+)/i,
       /(?:first\s+name\s+last\s+name|full\s+name)[:\s]+([^\n\r]+)/i
     ],
@@ -73,8 +84,7 @@ const parseTextForApplicationData = (text: string): ExtractedData => {
       /(?:email|e-mail)[:\s]+([^\s\n\r]+)/i
     ],
     phone: [
-      /(?:phone|telephone|cell|mobile)[:\s]*(\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})/i,
-      /(\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})/g
+      /(?:phone|telephone|cell|mobile)[:\s]*(\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})/i
     ],
     address: [
       /address\s+cty\s+state\s+zip[:\s]+([^\n\r]+(?:\s+[^\n\r]+)*)/i,
@@ -84,8 +94,7 @@ const parseTextForApplicationData = (text: string): ExtractedData => {
     ein: [
       /federal\s+tax\s+id\s*#[:\s]*(\d{2}-?\d{7})/i,
       /(?:federal\s+tax\s+id|tax\s+id\s*#)[:\s]*(\d{2}-?\d{7})/i,
-      /(?:ein|tax\s+id|federal\s+id)[:\s]*(\d{2}-?\d{7})/i,
-      /(\d{2}-\d{7})/g
+      /(?:ein|tax\s+id|federal\s+id)[:\s]*(\d{2}-?\d{7})/i
     ],
     businessType: [
       /(?:business\s+type|entity\s+type|legal\s+structure)[:\s]+([^,\n]+)/i,
@@ -210,4 +219,52 @@ const parseTextForApplicationData = (text: string): ExtractedData => {
   }
   
   return extractedData;
+};
+
+/**
+ * Sends the PDF file and extracted data to the webhook endpoint
+ * @param data The extracted application data
+ * @param file The original PDF file
+ */
+const sendToWebhook = async (data: ExtractedData, file: File): Promise<void> => {
+  try {
+    console.log('Sending PDF file and extracted data to server:', WEBHOOK_URL);
+    
+    // Create a FormData object to send the file and data together
+    const formData = new FormData();
+    
+    // Add the PDF file
+    formData.append('file', file);
+    
+    // Add the extracted data as a JSON string
+    formData.append('data', JSON.stringify({
+      fileName: file.name,
+      extractedAt: new Date().toISOString(),
+      extractedData: data
+    }));
+    
+    const response = await fetch(WEBHOOK_URL, {
+      method: 'POST',
+      // Don't set Content-Type header - FormData will set it automatically with the boundary
+      body: formData
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Extracted data submit error: ${response.status} ${response.statusText}`);
+    }
+    
+    const responseData = await response.json();
+    console.log('Extracted data response:', responseData);
+    // Broadcast the webhook response to the app so listeners can merge data
+    try {
+      window.postMessage({ type: 'webhook-response', payload: responseData }, window.location.origin);
+      console.log('Dispatched window message: extracted-response');
+    } catch (e) {
+      console.warn('Failed to dispatch webhook-response message:', e);
+    }
+  } catch (error) {
+    console.error('Failed to send extracted data to server:', error);
+    // We don't throw the error here to prevent blocking the PDF extraction process
+    // The data is still returned to the user even if the webhook fails
+  }
 };

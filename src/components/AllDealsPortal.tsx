@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Filter, Eye, Edit, Download, Calendar, DollarSign, Building2, User, Star, CheckCircle, XCircle, Clock, AlertTriangle } from 'lucide-react';
+import { Search, Eye, Edit, Download, DollarSign, Building2, Star, CheckCircle, XCircle, Clock, AlertTriangle } from 'lucide-react';
 import { getApplications, getLenderSubmissions, Application as DBApplication, LenderSubmission as DBLenderSubmission } from '../lib/supabase';
 
 // Use database types
@@ -95,19 +95,6 @@ const AllDealsPortal: React.FC = () => {
         return <XCircle className="w-4 h-4" />;
       default:
         return <Clock className="w-4 h-4" />;
-    }
-  };
-
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'funded':
-        return 'bg-blue-100 text-blue-800';
-      case 'approved':
-        return 'bg-green-100 text-green-800';
-      case 'declined':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
     }
   };
 

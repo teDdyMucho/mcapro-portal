@@ -1,42 +1,40 @@
 import React, { useState } from 'react';
-import { Users, Building2, Settings, Plus, Edit, Trash2, Eye, Star, DollarSign, Clock, CheckCircle, Mail, XCircle, AlertTriangle } from 'lucide-react';
+import { Users, Building2, Settings, Plus, Edit, Trash2, Eye, Star, CheckCircle, Mail, XCircle } from 'lucide-react';
 import { getLenders, createLender, updateLender, deleteLender, getApplications, getLenderSubmissions, updateApplication, deleteApplication, updateLenderSubmission, createLenderSubmissions, Lender as DBLender, Application as DBApplication, LenderSubmission as DBLenderSubmission } from '../lib/supabase';
 
 const AdminPortal: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'applications' | 'lenders' | 'settings'>('applications');
   const [showLenderForm, setShowLenderForm] = useState(false);
   const [editingLender, setEditingLender] = useState<DBLender | null>(null);
-  const [selectedLenderForDetails, setSelectedLenderForDetails] = useState<DBLender | null>(null);
-  const [showLenderDetails, setShowLenderDetails] = useState(false);
   const [showApplicationDetails, setShowApplicationDetails] = useState(false);
   const [showEmailTemplateSettings, setShowEmailTemplateSettings] = useState(false);
   const [emailTemplate, setEmailTemplate] = useState(() => {
     const saved = localStorage.getItem('mcaPortalEmailTemplate');
-    return saved || `Subject: Merchant Cash Advance Application - \{\{businessName\}\}
+    return saved || `Subject: Merchant Cash Advance Application - {{businessName}}
 
-Dear \{\{lenderName\}\} Team,
+Dear {{lenderName}} Team,
 
 I hope this email finds you well. I am writing to submit a merchant cash advance application for your review and consideration.
 
 BUSINESS INFORMATION:
-• Business Name: \{\{businessName\}\}
-• Owner: \{\{ownerName\}\}
-• Industry: \{\{industry\}\}
-• Years in Business: \{\{yearsInBusiness\}\}
-• Business Type: \{\{businessType\}\}
-• EIN: \{\{ein\}\}
+• Business Name: {{businessName}}
+• Owner: {{ownerName}}
+• Industry: {{industry}}
+• Years in Business: {{yearsInBusiness}}
+• Business Type: {{businessType}}
+• EIN: {{ein}}
 
 FINANCIAL DETAILS:
-• Requested Amount: $\{\{requestedAmount\}\}
-• Monthly Revenue: $\{\{monthlyRevenue\}\}
-• Annual Revenue: $\{\{annualRevenue\}\}
-• Credit Score: \{\{creditScore\}\}
-• Existing Debt: $\{\{existingDebt\}\}
+• Requested Amount: \${{requestedAmount}}
+• Monthly Revenue: \${{monthlyRevenue}}
+• Annual Revenue: \${{annualRevenue}}
+• Credit Score: {{creditScore}}
+• Existing Debt: \${{existingDebt}}
 
 CONTACT INFORMATION:
-• Email: \{\{email\}\}
-• Phone: \{\{phone\}\}
-• Address: \{\{address\}\}
+• Email: {{email}}
+• Phone: {{phone}}
+• Address: {{address}}
 
 I have attached the following documents for your review:
 • Business bank statements (last 6 months)
@@ -45,34 +43,34 @@ I have attached the following documents for your review:
 • Voided business check
 
 Based on your underwriting guidelines, I believe this application aligns well with your lending criteria:
-• Amount Range: $\{\{lenderMinAmount\}\} - $\{\{lenderMaxAmount\}\}
-• Factor Rate: \{\{lenderFactorRate\}\}
-• Payback Term: \{\{lenderPaybackTerm\}\}
-• Approval Time: \{\{lenderApprovalTime\}\}
+• Amount Range: \${{lenderMinAmount}} - \${{lenderMaxAmount}}
+• Factor Rate: {{lenderFactorRate}}
+• Payback Term: {{lenderPaybackTerm}}
+• Approval Time: {{lenderApprovalTime}}
 
 I would appreciate the opportunity to discuss this application further and answer any questions you may have. Please let me know if you need any additional information or documentation.
 
 Thank you for your time and consideration. I look forward to hearing from you soon.
 
 Best regards,
-\{\{ownerName\}\}
-\{\{businessName\}\}
-\{\{email\}\}
-\{\{phone\}\}
+{{ownerName}}
+{{businessName}}
+{{email}}
+{{phone}}
 
 ---
 This application was submitted through MCAPortal Pro
-Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{requested_amount}}');
+Application ID: {{applicationId}}`;
   });
   const [selectedApplication, setSelectedApplication] = useState<DBApplication & { matchedLenders: number } | null>(null);
   const [lenders, setLenders] = useState<DBLender[]>([]);
   const [applications, setApplications] = useState<(DBApplication & { matchedLenders: number })[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingApplication, setEditingApplication] = useState<DBApplication | null>(null);
+  const [editingApplication, setEditingApplication] = useState<(DBApplication & Partial<{ matchedLenders: number }>) | null>(null);
   const [showEditApplication, setShowEditApplication] = useState(false);
   const [applicationSubmissions, setApplicationSubmissions] = useState<(DBLenderSubmission & { lender: DBLender })[]>([]);
-  const [editingSubmission, setEditingSubmission] = useState<DBLenderSubmission | null>(null);
   const [showAddSubmission, setShowAddSubmission] = useState(false);
+
   const [lenderFormData, setLenderFormData] = useState({
     name: '',
     contactEmail: '',
@@ -138,14 +136,73 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
     loadData();
   }, []);
 
+  // Load lender submissions for a given application
   const loadApplicationSubmissions = async (applicationId: string) => {
     try {
-      const submissions = await getLenderSubmissions(applicationId);
-      setApplicationSubmissions(submissions);
+      const subs = await getLenderSubmissions(applicationId);
+      setApplicationSubmissions(subs as (DBLenderSubmission & { lender: DBLender })[]);
     } catch (error) {
-      console.error('Error loading application submissions:', error);
+      console.error('Error loading submissions:', error);
     }
   };
+
+  // View application details
+  const handleViewApplication = (app: DBApplication & { matchedLenders: number }) => {
+    setSelectedApplication(app);
+    setShowApplicationDetails(true);
+    loadApplicationSubmissions(app.id);
+  };
+
+  // Open edit modal for application
+  const handleEditApplication = (app: DBApplication & { matchedLenders: number }) => {
+    setEditingApplication(app);
+    setShowEditApplication(true);
+    loadApplicationSubmissions(app.id);
+  };
+
+  // Save application updates
+  const handleUpdateApplication = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingApplication) return;
+
+    try {
+      const dbUpdateData: Partial<DBApplication> = {
+        business_name: editingApplication.business_name,
+        owner_name: editingApplication.owner_name,
+        email: editingApplication.email,
+        phone: editingApplication.phone,
+        address: editingApplication.address,
+        ein: editingApplication.ein,
+        business_type: editingApplication.business_type,
+        industry: editingApplication.industry,
+        years_in_business: editingApplication.years_in_business,
+        number_of_employees: editingApplication.number_of_employees,
+        annual_revenue: editingApplication.annual_revenue,
+        monthly_revenue: editingApplication.monthly_revenue,
+        monthly_deposits: editingApplication.monthly_deposits,
+        existing_debt: editingApplication.existing_debt,
+        credit_score: editingApplication.credit_score,
+        requested_amount: editingApplication.requested_amount,
+        status: editingApplication.status,
+        documents: editingApplication.documents,
+        user_id: editingApplication.user_id,
+      };
+      const updated = await updateApplication(editingApplication.id, dbUpdateData);
+
+      setApplications(prev => prev.map(app => 
+        app.id === editingApplication.id 
+          ? { ...updated, matchedLenders: editingApplication.matchedLenders || app.matchedLenders }
+          : app
+      ));
+      setShowEditApplication(false);
+      setEditingApplication(null);
+    } catch (error) {
+      console.error('Error updating application:', error);
+      alert('Error updating application');
+    }
+  };
+
+  
 
   if (loading) {
     return (
@@ -209,10 +266,6 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
     setShowLenderForm(true);
   };
 
-  const handleViewLenderDetails = (lender: DBLender) => {
-    setSelectedLenderForDetails(lender);
-    setShowLenderDetails(true);
-  };
 
   const handleAddNewLender = () => {
     setLenderFormData({
@@ -318,38 +371,6 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
     }
   };
 
-  const handleViewApplication = (application: DBApplication & { matchedLenders: number }) => {
-    setSelectedApplication(application);
-    setShowApplicationDetails(true);
-  };
-
-  const handleEditApplication = (application: DBApplication & { matchedLenders: number }) => {
-    setEditingApplication({ ...application });
-    setShowEditApplication(true);
-    loadApplicationSubmissions(application.id);
-  };
-      // Remove client-side properties that don't exist in the database
-  const handleUpdateApplication = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingApplication) return;
-
-    try {
-      const { matchedLenders, lenderSubmissions, ...dbUpdateData } = editingApplication;
-      const updated = await updateApplication(editingApplication.id, dbUpdateData);
-      
-      setApplications(prev => prev.map(app => 
-        app.id === editingApplication.id 
-          ? { ...updated, matchedLenders: editingApplication.matchedLenders || app.matchedLenders, lenderSubmissions: editingApplication.lenderSubmissions || app.lenderSubmissions }
-          : app
-      ));
-      setShowEditApplication(false);
-      setEditingApplication(null);
-    } catch (error) {
-      console.error('Error updating application:', error);
-      alert('Error updating application');
-    }
-  };
-
   const handleUpdateSubmission = async (submission: DBLenderSubmission, updates: Partial<DBLenderSubmission>) => {
     try {
       const updatedSubmission = await updateLenderSubmission(submission.id, updates);
@@ -385,7 +406,7 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
 
       {/* Navigation Tabs */}
       <div className="border-b border-gray-200 mb-8">
-        <nav className="flex space-x-8">
+        <nav className="flex flex-wrap gap-4 overflow-x-auto no-scrollbar -mx-1 px-1">
           <button
             onClick={() => setActiveTab('applications')}
             className={`py-2 px-1 border-b-2 font-medium text-sm ${
@@ -410,7 +431,7 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
           </button>
           <button
             onClick={() => setShowEmailTemplateSettings(true)}
-            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center"
+            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center text-sm"
           >
             <Mail className="w-4 h-4 mr-2" />
             Email Template
@@ -432,10 +453,10 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
       {/* Applications Tab */}
       {activeTab === 'applications' && (
         <div>
-          <div className="flex justify-between items-center mb-6">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
             <h2 className="text-2xl font-bold text-gray-900">Applications</h2>
-            <div className="flex space-x-2">
-              <select className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500">
+            <div className="flex flex-wrap gap-2">
+              <select className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 text-sm">
                 <option>All Statuses</option>
                 <option>Submitted</option>
                 <option>Under Review</option>
@@ -447,81 +468,56 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
           </div>
 
           <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Application
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Amount
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Revenue/Credit
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Matches
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {applications.map((app) => (
-                  <tr key={app.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">{app.business_name}</div>
-                        <div className="text-sm text-gray-500">{app.owner_name}</div>
-                        <div className="text-xs text-gray-400">{app.id}</div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
-                        ${app.requested_amount.toLocaleString()}
-                      </div>
-                      <div className="text-sm text-gray-500">{app.industry}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">${app.monthly_revenue.toLocaleString()}/mo</div>
-                      <div className="text-sm text-gray-500">Credit: {app.credit_score}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(app.status)}`}>
-                        {app.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {app.matchedLenders} lenders
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button 
-                        onClick={() => handleViewApplication(app)}
-                        className="text-emerald-600 hover:text-emerald-900 mr-3"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={() => handleEditApplication(app)}
-                        className="text-blue-600 hover:text-blue-900 mr-3"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteApplication(app.id)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Application</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue/Credit</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Matches</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {applications.map((app) => (
+                    <tr key={app.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">{app.business_name}</div>
+                          <div className="text-sm text-gray-500">{app.owner_name}</div>
+                          <div className="text-xs text-gray-400 break-all max-w-[220px] sm:max-w-none">{app.id}</div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">${app.requested_amount.toLocaleString()}</div>
+                        <div className="text-sm text-gray-500">{app.industry}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">${app.monthly_revenue.toLocaleString()}/mo</div>
+                        <div className="text-sm text-gray-500">Credit: {app.credit_score}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(app.status)}`}>{app.status}</span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{app.matchedLenders} lenders</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button onClick={() => handleViewApplication(app)} className="text-emerald-600 hover:text-emerald-900 mr-3">
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => handleEditApplication(app)} className="text-blue-600 hover:text-blue-900 mr-3">
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => handleDeleteApplication(app.id)} className="text-red-600 hover:text-red-900">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -950,189 +946,7 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
         </div>
       )}
 
-      {/* Lender Details Modal */}
-      {showLenderDetails && selectedLenderForDetails && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <div className="w-16 h-16 bg-emerald-100 rounded-lg flex items-center justify-center mr-4">
-                    <Building2 className="w-8 h-8 text-emerald-600" />
-                  </div>
-                  <div>
-                    <h3 className="text-2xl font-bold text-gray-900">{selectedLenderForDetails.name}</h3>
-                    <div className="flex items-center mt-1">
-                      <Star className="w-5 h-5 text-yellow-400 fill-current mr-1" />
-                      <span className="text-lg font-medium">{selectedLenderForDetails.rating}</span>
-                      <span className={`ml-4 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(selectedLenderForDetails.status)}`}>
-                        {selectedLenderForDetails.status}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowLenderDetails(false)}
-                  className="text-gray-400 hover:text-gray-600 text-2xl"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-            
-            <div className="p-6">
-              {/* Contact Information */}
-              <div className="mb-8">
-                <h4 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Email</label>
-                    <p className="mt-1 text-sm text-gray-900">{selectedLenderForDetails.contact_email}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Phone</label>
-                    <p className="mt-1 text-sm text-gray-900">{selectedLenderForDetails.phone}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Performance Metrics */}
-              <div className="mb-8">
-                <h4 className="text-lg font-semibold text-gray-900 mb-4">Performance Metrics</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="bg-blue-50 p-4 rounded-lg">
-                    <div className="text-sm text-blue-600 font-medium">Total Applications</div>
-                    <div className="text-2xl font-bold text-blue-900">{selectedLenderForDetails.total_applications}</div>
-                  </div>
-                  <div className="bg-green-50 p-4 rounded-lg">
-                    <div className="text-sm text-green-600 font-medium">Approval Rate</div>
-                    <div className="text-2xl font-bold text-green-900">{selectedLenderForDetails.approval_rate}%</div>
-                  </div>
-                  <div className="bg-yellow-50 p-4 rounded-lg">
-                    <div className="text-sm text-yellow-600 font-medium">Rating</div>
-                    <div className="text-2xl font-bold text-yellow-900">{selectedLenderForDetails.rating}/5.0</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Underwriting Guidelines */}
-              <div className="mb-8">
-                <h4 className="text-lg font-semibold text-gray-900 mb-4">Underwriting Guidelines</h4>
-                
-                {/* Amount and Credit Requirements */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h5 className="font-medium text-gray-900 mb-3">Funding Range</h5>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Minimum Amount:</span>
-                        <span className="text-sm font-medium">${selectedLenderForDetails.min_amount.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Maximum Amount:</span>
-                        <span className="text-sm font-medium">${selectedLenderForDetails.max_amount.toLocaleString()}</span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h5 className="font-medium text-gray-900 mb-3">Credit Requirements</h5>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Minimum Credit Score:</span>
-                        <span className="text-sm font-medium">{selectedLenderForDetails.min_credit_score}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Maximum Credit Score:</span>
-                        <span className="text-sm font-medium">{selectedLenderForDetails.max_credit_score}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Business Requirements */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h5 className="font-medium text-gray-900 mb-3">Business Requirements</h5>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Min Time in Business:</span>
-                        <span className="text-sm font-medium">{selectedLenderForDetails.min_time_in_business} years</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Min Monthly Revenue:</span>
-                        <span className="text-sm font-medium">${selectedLenderForDetails.min_monthly_revenue.toLocaleString()}</span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h5 className="font-medium text-gray-900 mb-3">Terms & Processing</h5>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Factor Rate:</span>
-                        <span className="text-sm font-medium">{selectedLenderForDetails.factor_rate}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Payback Term:</span>
-                        <span className="text-sm font-medium">{selectedLenderForDetails.payback_term}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Approval Time:</span>
-                        <span className="text-sm font-medium">{selectedLenderForDetails.approval_time}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Industries */}
-                <div className="mb-6">
-                  <h5 className="font-medium text-gray-900 mb-3">Accepted Industries</h5>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedLenderForDetails.industries.map((industry, index) => (
-                      <span key={index} className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
-                        {industry}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Features */}
-                <div>
-                  <h5 className="font-medium text-gray-900 mb-3">Key Features</h5>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    {selectedLenderForDetails.features.map((feature, index) => (
-                      <div key={index} className="flex items-center">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                        <span className="text-sm text-gray-700">{feature}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
-                <button
-                  onClick={() => setShowLenderDetails(false)}
-                  className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Close
-                </button>
-                <button
-                  onClick={() => {
-                    setShowLenderDetails(false);
-                    handleEditLender(selectedLenderForDetails);
-                  }}
-                  className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
-                >
-                  Edit Lender
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Lender Details Modal removed as it was unused */}
 
       {/* Application Details Modal */}
       {showApplicationDetails && selectedApplication && (
@@ -1390,14 +1204,13 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
                         <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                         <select
                           value={editingApplication.status}
-                          onChange={(e) => setEditingApplication(prev => prev ? { ...prev, status: e.target.value as any } : null)}
+                          onChange={(e) => setEditingApplication(prev => (prev ? { ...prev, status: e.target.value as DBApplication['status'] } : prev))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                         >
                           <option value="draft">Draft</option>
                           <option value="submitted">Submitted</option>
                           <option value="under-review">Under Review</option>
                           <option value="approved">Approved</option>
-                          <option value="matched">Matched</option>
                           <option value="funded">Funded</option>
                           <option value="declined">Declined</option>
                         </select>
@@ -1407,7 +1220,7 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
                         <input
                           type="number"
                           value={editingApplication.requested_amount}
-                          onChange={(e) => setEditingApplication(prev => prev ? { ...prev, requested_amount: Number(e.target.value) } : null)}
+                          onChange={(e) => setEditingApplication(prev => (prev ? { ...prev, requested_amount: Number(e.target.value) } : prev))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                         />
                       </div>
@@ -1416,7 +1229,7 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
                         <input
                           type="number"
                           value={editingApplication.monthly_revenue}
-                          onChange={(e) => setEditingApplication(prev => prev ? { ...prev, monthly_revenue: Number(e.target.value) } : null)}
+                          onChange={(e) => setEditingApplication(prev => (prev ? { ...prev, monthly_revenue: Number(e.target.value) } : prev))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                         />
                       </div>
@@ -1425,7 +1238,7 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
                         <input
                           type="number"
                           value={editingApplication.credit_score}
-                          onChange={(e) => setEditingApplication(prev => prev ? { ...prev, credit_score: Number(e.target.value) } : null)}
+                          onChange={(e) => setEditingApplication(prev => (prev ? { ...prev, credit_score: Number(e.target.value) } : prev))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                           min="300"
                           max="850"
@@ -1436,7 +1249,7 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
                         <input
                           type="number"
                           value={editingApplication.years_in_business}
-                          onChange={(e) => setEditingApplication(prev => prev ? { ...prev, years_in_business: Number(e.target.value) } : null)}
+                          onChange={(e) => setEditingApplication(prev => (prev ? { ...prev, years_in_business: Number(e.target.value) } : prev))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                           min="0"
                         />
@@ -1480,7 +1293,7 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
                           </div>
                           <select
                             value={submission.status}
-                            onChange={(e) => handleUpdateSubmission(submission, { status: e.target.value as any })}
+                            onChange={(e) => handleUpdateSubmission(submission, { status: e.target.value as DBLenderSubmission['status'] })}
                             className={`px-3 py-1 rounded-full text-xs font-medium border-0 ${
                               submission.status === 'approved' ? 'bg-green-100 text-green-800' :
                               submission.status === 'declined' ? 'bg-red-100 text-red-800' :
@@ -1503,7 +1316,7 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
                             <input
                               type="number"
                               value={submission.offered_amount || ''}
-                              onChange={(e) => handleUpdateSubmission(submission, { offered_amount: Number(e.target.value) || null })}
+                              onChange={(e) => handleUpdateSubmission(submission, { offered_amount: e.target.value === '' ? undefined : Number(e.target.value) })}
                               className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
                               placeholder="Amount"
                             />
@@ -1513,7 +1326,7 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
                             <input
                               type="text"
                               value={submission.factor_rate || ''}
-                              onChange={(e) => handleUpdateSubmission(submission, { factor_rate: e.target.value || null })}
+                              onChange={(e) => handleUpdateSubmission(submission, { factor_rate: e.target.value === '' ? undefined : e.target.value })}
                               className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
                               placeholder="1.2"
                             />
@@ -1525,7 +1338,7 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
                           <input
                             type="text"
                             value={submission.terms || ''}
-                            onChange={(e) => handleUpdateSubmission(submission, { terms: e.target.value || null })}
+                            onChange={(e) => handleUpdateSubmission(submission, { terms: e.target.value === '' ? undefined : e.target.value })}
                             className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
                             placeholder="12 months"
                           />
@@ -1535,7 +1348,7 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
                           <label className="block text-xs font-medium text-gray-700 mb-1">Response</label>
                           <textarea
                             value={submission.response || ''}
-                            onChange={(e) => handleUpdateSubmission(submission, { response: e.target.value || null })}
+                            onChange={(e) => handleUpdateSubmission(submission, { response: e.target.value === '' ? undefined : e.target.value })}
                             className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
                             rows={2}
                             placeholder="Lender response..."
@@ -1546,7 +1359,7 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
                           <label className="block text-xs font-medium text-gray-700 mb-1">Notes</label>
                           <textarea
                             value={submission.notes || ''}
-                            onChange={(e) => handleUpdateSubmission(submission, { notes: e.target.value || null })}
+                            onChange={(e) => handleUpdateSubmission(submission, { notes: e.target.value === '' ? undefined : e.target.value })}
                             className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
                             rows={2}
                             placeholder="Internal notes..."
@@ -1651,7 +1464,7 @@ Application ID: \{\{applicationId\}\}`.replace(/\{\{requestedAmount\}\}/g, '{{re
                     </div>
                     <div className="space-y-1">
                       <p className="font-medium text-gray-700">Financial Info:</p>
-                      <p className="text-gray-600">{"{{requested_amount}}"}</p>
+                      <p className="text-gray-600">{"{{requestedAmount}}"}</p>
                       <p className="text-gray-600">{"{{monthlyRevenue}}"}</p>
                       <p className="text-gray-600">{"{{annualRevenue}}"}</p>
                       <p className="text-gray-600">{"{{creditScore}}"}</p>
@@ -1739,11 +1552,11 @@ BUSINESS INFORMATION:
 • EIN: {{ein}}
 
 FINANCIAL DETAILS:
-• Requested Amount: ${{requestedAmount}}
-• Monthly Revenue: ${{monthlyRevenue}}
-• Annual Revenue: ${{annualRevenue}}
+• Requested Amount: \${{requestedAmount}}
+• Monthly Revenue: \${{monthlyRevenue}}
+• Annual Revenue: \${{annualRevenue}}
 • Credit Score: {{creditScore}}
-• Existing Debt: ${{existingDebt}}
+• Existing Debt: \${{existingDebt}}
 
 CONTACT INFORMATION:
 • Email: {{email}}
@@ -1757,7 +1570,7 @@ I have attached the following documents for your review:
 • Voided business check
 
 Based on your underwriting guidelines, I believe this application aligns well with your lending criteria:
-• Amount Range: ${{lenderMinAmount}} - ${{lenderMaxAmount}}
+• Amount Range: \${{lenderMinAmount}} - \${{lenderMaxAmount}}
 • Factor Rate: {{lenderFactorRate}}
 • Payback Term: {{lenderPaybackTerm}}
 • Approval Time: {{lenderApprovalTime}}

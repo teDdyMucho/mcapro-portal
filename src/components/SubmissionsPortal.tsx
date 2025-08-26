@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Upload, FileText, DollarSign, Building2, Calendar, Phone, Mail, MapPin, User, CheckCircle, AlertCircle } from 'lucide-react';
+import { CheckCircle } from 'lucide-react';
 import ApplicationForm from './ApplicationForm';
 import LenderMatches from './LenderMatches';
 import SubmissionRecap from './SubmissionRecap';
 
-interface Application {
+// Broad application data type to interop with both LenderMatches and SubmissionRecap
+type AppData = {
   id: string;
   businessName: string;
   monthlyRevenue: number;
@@ -12,20 +13,111 @@ interface Application {
   creditScore: number;
   industry: string;
   requestedAmount: number;
-  status: 'draft' | 'submitted' | 'under-review' | 'approved';
-}
+  status?: 'draft' | 'submitted' | 'under-review' | 'approved' | 'matched';
+  // Top-level fields expected by LenderMatches
+  ownerName: string;
+  email: string;
+  phone?: string;
+  address?: string;
+  ein?: string;
+  businessType?: string;
+  yearsInBusiness?: number;
+  numberOfEmployees?: number;
+  annualRevenue?: number;
+  monthlyDeposits?: number;
+  existingDebt?: number;
+  documents: string[];
+  // Nested fields expected by SubmissionRecap
+  contactInfo: {
+    ownerName: string;
+    email: string;
+    phone: string;
+    address: string;
+  };
+  businessInfo: {
+    ein: string;
+    businessType: string;
+    yearsInBusiness: number;
+    numberOfEmployees: number;
+  };
+  financialInfo: {
+    annualRevenue: number;
+    averageMonthlyRevenue: number;
+    averageMonthlyDeposits: number;
+    existingDebt: number;
+  };
+};
+
+// Local type mirroring ApplicationForm's Application output
+type FormApplication = {
+  id: string;
+  businessName: string;
+  monthlyRevenue: number;
+  timeInBusiness: number;
+  creditScore: number;
+  industry: string;
+  requestedAmount: number;
+  status: 'draft' | 'submitted' | 'under-review' | 'approved' | 'matched';
+  contactInfo: {
+    ownerName: string;
+    email: string;
+    phone: string;
+    address: string;
+  };
+  businessInfo: {
+    ein: string;
+    businessType: string;
+    yearsInBusiness: number;
+    numberOfEmployees: number;
+  };
+  financialInfo: {
+    annualRevenue: number;
+    averageMonthlyRevenue: number;
+    averageMonthlyDeposits: number;
+    existingDebt: number;
+  };
+  documents: string[];
+};
 
 const SubmissionsPortal: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<'application' | 'matches' | 'recap'>('application');
-  const [application, setApplication] = useState<Application | null>(null);
+  const [application, setApplication] = useState<AppData | null>(null);
   const [selectedLenders, setSelectedLenders] = useState<string[]>([]);
 
-  const handleApplicationSubmit = (appData: Application) => {
-    setApplication(appData);
+  const handleApplicationSubmit = (appData: FormApplication) => {
+    // Map to unified AppData with both nested and top-level fields
+    const mapped: AppData = {
+      id: appData.id,
+      businessName: appData.businessName,
+      monthlyRevenue: appData.monthlyRevenue,
+      timeInBusiness: appData.timeInBusiness,
+      creditScore: appData.creditScore,
+      industry: appData.industry,
+      requestedAmount: appData.requestedAmount,
+      status: appData.status,
+      // top-level duplicates for LenderMatches
+      ownerName: appData.contactInfo.ownerName,
+      email: appData.contactInfo.email,
+      phone: appData.contactInfo.phone,
+      address: appData.contactInfo.address,
+      ein: appData.businessInfo.ein,
+      businessType: appData.businessInfo.businessType,
+      yearsInBusiness: appData.businessInfo.yearsInBusiness,
+      numberOfEmployees: appData.businessInfo.numberOfEmployees,
+      annualRevenue: appData.financialInfo.annualRevenue,
+      monthlyDeposits: appData.financialInfo.averageMonthlyDeposits,
+      existingDebt: appData.financialInfo.existingDebt,
+      documents: appData.documents,
+      // nested for SubmissionRecap
+      contactInfo: appData.contactInfo,
+      businessInfo: appData.businessInfo,
+      financialInfo: appData.financialInfo,
+    };
+    setApplication(mapped);
     setCurrentStep('matches');
   };
 
-  const handleLendersSelected = (lenderIds: string[], lenders: any[]) => {
+  const handleLendersSelected = (lenderIds: string[]) => {
     setSelectedLenders(lenderIds);
     setCurrentStep('recap');
   };
@@ -88,14 +180,18 @@ const SubmissionsPortal: React.FC = () => {
         <ApplicationForm onSubmit={handleApplicationSubmit} />
       ) : currentStep === 'matches' ? (
         <LenderMatches 
-          application={application} 
+          application={application}
           onBack={() => setCurrentStep('application')} 
           onLenderSelect={handleLendersSelected}
-          isAdmin={false} 
         />
       ) : (
         <SubmissionRecap 
-          application={application}
+          application={application ? {
+            ...application,
+            status: (['draft','submitted','under-review','matched'].includes(String(application.status))
+              ? (application.status as 'draft' | 'submitted' | 'under-review' | 'matched')
+              : 'submitted')
+          } : null}
           selectedLenderIds={selectedLenders}
           onBack={handleBackToMatches}
           onSubmit={handleFinalSubmit}

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Send, Mail, Settings, CheckCircle, Building2, DollarSign, User, FileText, Eye, Loader } from 'lucide-react';
+import { ArrowLeft, Send, Settings, CheckCircle, FileText, Loader } from 'lucide-react';
 import { getLenders, createLenderSubmissions, Lender as DBLender } from '../lib/supabase';
 
 interface Application {
@@ -32,25 +32,13 @@ interface Application {
   documents: string[];
 }
 
-interface Lender {
-  id: string;
-  name: string;
-  logo: string;
-  rating: number;
-  minAmount: number;
-  maxAmount: number;
-  minCreditScore: number;
-  maxCreditScore: number;
-  minTimeInBusiness: number;
-  minMonthlyRevenue: number;
-  industries: string[];
-  factorRate: string;
-  paybackTerm: string;
-  approvalTime: string;
-  features: string[];
-  qualified: boolean;
-  matchScore: number;
-}
+type EmailSettings = {
+  smtpHost: string;
+  smtpPort: string;
+  smtpUser: string;
+  smtpPassword: string;
+  fromEmail: string;
+};
 
 interface SubmissionRecapProps {
   application: Application | null;
@@ -66,10 +54,10 @@ const SubmissionRecap: React.FC<SubmissionRecapProps> = ({
   onSubmit 
 }) => {
   const [showEmailPreview, setShowEmailPreview] = useState(false);
-  const [emailSettings, setEmailSettings] = useState(() => {
+  const [emailSettings, setEmailSettings] = useState<EmailSettings>(() => {
     // Load saved SMTP settings from localStorage
     const savedSettings = localStorage.getItem('mcaPortalSmtpSettings');
-    const defaultSettings = {
+    const defaultSettings: EmailSettings = {
       smtpHost: '',
       smtpPort: '',
       smtpUser: '',
@@ -95,7 +83,7 @@ const SubmissionRecap: React.FC<SubmissionRecapProps> = ({
   const [showEmailSettings, setShowEmailSettings] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionComplete, setSubmissionComplete] = useState(false);
-  const [selectedLenderForDetails, setSelectedLenderForDetails] = useState<Lender | null>(null);
+  const [selectedLenderForDetails, setSelectedLenderForDetails] = useState<DBLender | null>(null);
   const [lenders, setLenders] = useState<DBLender[]>([]);
 
   // Load lenders from Supabase
@@ -133,11 +121,11 @@ BUSINESS INFORMATION:
 • EIN: {{ein}}
 
 FINANCIAL DETAILS:
-• Requested Amount: ${{requestedAmount}}
-• Monthly Revenue: ${{monthlyRevenue}}
-• Annual Revenue: ${{annualRevenue}}
+• Requested Amount: \${{requestedAmount}}
+• Monthly Revenue: \${{monthlyRevenue}}
+• Annual Revenue: \${{annualRevenue}}
 • Credit Score: {{creditScore}}
-• Existing Debt: ${{existingDebt}}
+• Existing Debt: \${{existingDebt}}
 
 CONTACT INFORMATION:
 • Email: {{email}}
@@ -151,7 +139,7 @@ I have attached the following documents for your review:
 • Voided business check
 
 Based on your underwriting guidelines, I believe this application aligns well with your lending criteria:
-• Amount Range: ${{lenderMinAmount}} - ${{lenderMaxAmount}}
+• Amount Range: \${{lenderMinAmount}} - \${{lenderMaxAmount}}
 • Factor Rate: {{lenderFactorRate}}
 • Payback Term: {{lenderPaybackTerm}}
 • Approval Time: {{lenderApprovalTime}}
@@ -292,15 +280,15 @@ Application ID: {{applicationId}}`;
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <button
           onClick={onBack}
-          className="flex items-center text-gray-600 hover:text-gray-900 transition-colors"
+          className="w-full sm:w-auto flex items-center justify-center sm:justify-start text-gray-600 hover:text-gray-900 transition-colors"
         >
           <ArrowLeft className="w-5 h-5 mr-2" />
           Back to Lender Selection
         </button>
-        <div className="text-sm text-gray-500">
+        <div className="text-sm text-gray-500 break-all">
           Application ID: {application.id}
         </div>
       </div>
@@ -417,11 +405,11 @@ Application ID: {{applicationId}}`;
         </div>
 
         {/* Final Submit Button */}
-        <div className="flex justify-end pt-6 border-t border-gray-200">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-3 pt-6 border-t border-gray-200">
           <button
             onClick={handleFinalSubmit}
             disabled={isSubmitting}
-            className={`flex items-center px-8 py-3 rounded-lg font-medium transition-colors ${
+            className={`w-full sm:w-auto justify-center flex items-center px-8 py-3 rounded-lg font-medium transition-colors ${
               isSubmitting
                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 : 'bg-green-600 text-white hover:bg-green-700'

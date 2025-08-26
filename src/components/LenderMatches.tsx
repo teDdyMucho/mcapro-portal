@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Star, CheckCircle, Clock, DollarSign, Building2, ArrowRight } from 'lucide-react';
+import { Star, CheckCircle, Building2, ArrowRight } from 'lucide-react';
 import { getLenders, qualifyLenders, Lender as DBLender, Application as DBApplication } from '../lib/supabase';
 
 // Application interface matching the camelCase structure from ApplicationForm
@@ -47,16 +47,22 @@ const LenderMatches: React.FC<LenderMatchesProps> = ({ application, onLenderSele
         const lendersArray = allLenders || [];
         
         // Convert camelCase application to snake_case for database compatibility
+        // Coerce status to allowed union
+        const allowedStatus: DBApplication['status'][] = ['draft', 'submitted', 'under-review', 'approved', 'funded', 'declined'];
+        const status: DBApplication['status'] = allowedStatus.includes((application.status as DBApplication['status']))
+          ? (application.status as DBApplication['status'])
+          : 'draft';
+
         const dbApplication: DBApplication = {
           id: '',
           business_name: application.businessName || '',
           owner_name: application.ownerName || '',
           email: application.email || '',
-          phone: application.phone || null,
-          address: application.address || null,
-          ein: application.ein || null,
-          business_type: application.businessType || null,
-          industry: application.industry || null,
+          phone: application.phone || '',
+          address: application.address || '',
+          ein: application.ein || '',
+          business_type: application.businessType || '',
+          industry: application.industry || '',
           years_in_business: application.yearsInBusiness || 0,
           number_of_employees: application.numberOfEmployees || 0,
           annual_revenue: application.annualRevenue || 0,
@@ -65,11 +71,11 @@ const LenderMatches: React.FC<LenderMatchesProps> = ({ application, onLenderSele
           existing_debt: application.existingDebt || 0,
           credit_score: application.creditScore || 0,
           requested_amount: application.requestedAmount || 0,
-          status: application.status || 'draft',
+          status,
           documents: application.documents || [],
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-          user_id: null
+          // user_id is optional; omit when not available
         };
         
         const qualifiedLenders = await qualifyLenders(lendersArray, dbApplication);
@@ -255,17 +261,17 @@ const LenderMatches: React.FC<LenderMatchesProps> = ({ application, onLenderSele
       </div>
 
       {/* Action Buttons */}
-      <div className="flex justify-between pt-8 border-t border-gray-200">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-8 border-t border-gray-200">
         <button
           onClick={onBack}
-          className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          className="w-full sm:w-auto px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
         >
           Back to Application
         </button>
         <button
           onClick={handleContinue}
           disabled={selectedLenderIds.length === 0}
-          className={`flex items-center px-8 py-3 rounded-lg font-medium transition-colors ${
+          className={`w-full sm:w-auto justify-center flex items-center px-8 py-3 rounded-lg font-medium transition-colors ${
             selectedLenderIds.length > 0
               ? 'bg-emerald-600 text-white hover:bg-emerald-700'
               : 'bg-gray-300 text-gray-500 cursor-not-allowed'
