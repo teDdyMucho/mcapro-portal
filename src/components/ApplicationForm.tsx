@@ -37,7 +37,7 @@ interface Application {
 }
 
 interface ApplicationFormProps {
-  onSubmit: (application: Application) => void;
+  onSubmit: (application: Application, extra?: { pdfFile?: File } | null) => void;
 }
 
 // Interface for webhook response data
@@ -186,18 +186,33 @@ const ApplicationForm: React.FC<ApplicationFormProps> = ({ onSubmit }) => {
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [applicationDocument, setApplicationDocument] = useState<File | null>(null);
 
-  // Any field that currently has a value should appear as populated (green)
+  // Manual mode: set to true when user clicks "Skip and fill form manually"
+  const [manualMode, setManualMode] = useState(false);
+
+  // Track which fields were auto-populated (used for green highlights and banner)
+  const [autoFields, setAutoFields] = useState<Record<string, true>>({});
+
+  // Only fields set automatically (webhook or extraction) should be highlighted
   const populatedFields = useMemo(() => {
-    const entries = Object.entries(formData);
-    const nonEmptyKeys = entries
-      .filter(([, v]) => {
-        if (typeof v === 'string') return v.trim() !== '';
-        if (Array.isArray(v)) return v.length > 0;
-        return Boolean(v);
-      })
-      .map(([k]) => k);
-    return new Set<string>(nonEmptyKeys);
-  }, [formData]);
+    if (manualMode) return new Set<string>();
+    return new Set<string>(Object.keys(autoFields));
+  }, [manualMode, autoFields]);
+
+  // Helpers for currency-like inputs: keep raw numeric in state, show formatted with commas
+  const sanitizeNumeric = (input: string) => {
+    // keep digits and a single dot
+    const cleaned = input.replace(/[^0-9.]/g, '');
+    const parts = cleaned.split('.');
+    const intPart = parts[0];
+    const decPart = parts.slice(1).join(''); // collapse extra dots
+    return decPart.length > 0 ? `${intPart}.${decPart}` : intPart;
+  };
+  const formatWithCommas = (raw: string) => {
+    if (!raw) return '';
+    const [i, d] = raw.split('.');
+    const withCommas = i.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return d !== undefined ? `${withCommas}.${d}` : withCommas;
+  };
 
   const industries = useMemo(() => [
     'Retail', 'Restaurant', 'Healthcare', 'Construction', 'Professional Services',
@@ -210,6 +225,10 @@ const ApplicationForm: React.FC<ApplicationFormProps> = ({ onSubmit }) => {
 
   // Listen for webhook responses
   useEffect(() => {
+    // In manual mode, do not attach webhook listeners
+    if (manualMode) {
+      return;
+    }
     const handleWebhookResponse = async (event: MessageEvent) => {
       try {
         // Allow processing only for configured origins and the correct type
@@ -413,6 +432,14 @@ const ApplicationForm: React.FC<ApplicationFormProps> = ({ onSubmit }) => {
             if (Object.keys(assignedByWebhook).length > 0) {
               setLastWebhookValues(prev => ({ ...prev, ...assignedByWebhook }));
             }
+            // Mark auto-populated fields only when not in manual mode
+            if (!manualMode && populatedFields.size > 0) {
+              setAutoFields(prev => {
+                const updated = { ...prev } as Record<string, true>;
+                populatedFields.forEach(k => { updated[k] = true; });
+                return updated;
+              });
+            }
             
             // populatedFields is used directly for UI; no state needed
             
@@ -435,7 +462,7 @@ const ApplicationForm: React.FC<ApplicationFormProps> = ({ onSubmit }) => {
     return () => {
       window.removeEventListener('message', handleWebhookResponse);
     };
-  }, [currentStep, lastWebhookValues, industries, businessTypes]);
+  }, [currentStep, lastWebhookValues, industries, businessTypes, manualMode]);
 
   const extractDataFromDocument = async (file: File) => {
     setIsExtracting(true);
@@ -452,6 +479,14 @@ const ApplicationForm: React.FC<ApplicationFormProps> = ({ onSubmit }) => {
         ...prev,
         ...filtered,
       }));
+      // Mark auto-populated fields if not in manual mode
+      if (!manualMode) {
+        setAutoFields(prev => {
+          const updated = { ...prev } as Record<string, true>;
+          Object.keys(filtered).forEach(k => { updated[k] = true; });
+          return updated;
+        });
+      }
       setCurrentStep('form');
     } catch (error) {
       console.error('Error extracting data from PDF:', error);
@@ -590,7 +625,13 @@ const ApplicationForm: React.FC<ApplicationFormProps> = ({ onSubmit }) => {
           documents: savedApplication.documents
         };
 
-        onSubmit(application);
+        // Pass the PDF file up so parent can call webhook and show loading immediately
+        const extra = applicationDocument && (
+          applicationDocument.type === 'application/pdf' ||
+          applicationDocument.name.toLowerCase().endsWith('.pdf')
+        ) ? { pdfFile: applicationDocument } : null;
+
+        onSubmit(application, extra);
       } catch (error) {
         console.error('Error saving application:', error);
         alert('Error saving application. Please try again.');
@@ -670,7 +711,16 @@ const ApplicationForm: React.FC<ApplicationFormProps> = ({ onSubmit }) => {
 
           <div className="mt-8 pt-6 border-t border-gray-200">
             <button
-              onClick={() => setCurrentStep('form')}
+              onClick={() => {
+                // Enter manual mode and bypass any extraction/webhook logic
+                setManualMode(true);
+                setCurrentStep('form');
+                setExtractedData(null);
+                setWebhookData(null);
+                setWebhookError(null);
+                setApplicationDocument(null);
+                setAutoFields({});
+              }}
               className="text-blue-600 hover:text-blue-700 font-medium"
             >
               Skip and fill form manually →
@@ -962,11 +1012,15 @@ const ApplicationForm: React.FC<ApplicationFormProps> = ({ onSubmit }) => {
                   <span className="text-gray-500">$</span>
                 </div>
                 <input
-                  type="number"
+                  type="text"
                   id="averageMonthlyRevenue"
-                  value={formData.averageMonthlyRevenue}
-                  onChange={(e) => setFormData({...formData, averageMonthlyRevenue: e.target.value})}
+                  value={formatWithCommas(formData.averageMonthlyRevenue)}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    averageMonthlyRevenue: sanitizeNumeric(e.target.value)
+                  })}
                   className={`w-full pl-8 px-4 py-2 border ${errors.averageMonthlyRevenue ? 'border-red-500' : 'border-gray-300'} rounded-lg focus:ring-blue-500 focus:border-blue-500 ${populatedFields.has('averageMonthlyRevenue') ? 'bg-green-50 border-green-300' : ''}`}
+                  inputMode="decimal"
                 />
               </div>
               {populatedFields.has('averageMonthlyRevenue') && (
@@ -984,11 +1038,15 @@ const ApplicationForm: React.FC<ApplicationFormProps> = ({ onSubmit }) => {
                   <span className="text-gray-500">$</span>
                 </div>
                 <input
-                  type="number"
+                  type="text"
                   id="averageMonthlyDeposits"
-                  value={formData.averageMonthlyDeposits}
-                  onChange={(e) => setFormData({...formData, averageMonthlyDeposits: e.target.value})}
+                  value={formatWithCommas(formData.averageMonthlyDeposits)}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    averageMonthlyDeposits: sanitizeNumeric(e.target.value)
+                  })}
                   className={`w-full pl-8 px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 ${populatedFields.has('averageMonthlyDeposits') ? 'bg-green-50 border-green-300' : ''}`}
+                  inputMode="decimal"
                 />
               </div>
               {populatedFields.has('averageMonthlyDeposits') && (
@@ -1005,11 +1063,15 @@ const ApplicationForm: React.FC<ApplicationFormProps> = ({ onSubmit }) => {
                   <span className="text-gray-500">$</span>
                 </div>
                 <input
-                  type="number"
+                  type="text"
                   id="existingDebt"
-                  value={formData.existingDebt}
-                  onChange={(e) => setFormData({...formData, existingDebt: e.target.value})}
+                  value={formatWithCommas(formData.existingDebt)}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    existingDebt: sanitizeNumeric(e.target.value)
+                  })}
                   className={`w-full pl-8 px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 ${populatedFields.has('existingDebt') ? 'bg-green-50 border-green-300' : ''}`}
+                  inputMode="decimal"
                 />
               </div>
               {populatedFields.has('existingDebt') && (

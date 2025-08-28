@@ -7,4 +7,13 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
+  server: {
+    proxy: {
+      '/webhook': {
+        target: 'https://primary-production-c8d0.up.railway.app',
+        changeOrigin: true,
+        secure: true,
+      },
+    },
+  },
 });
